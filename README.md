@@ -70,5 +70,5 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ---
 
 ## 👨‍💻 Developed By
-**Sahasra Technology** 📞 Contact: 0750837898  
+**Sahasra Technology** 📞 Contact: (+94)750837898 (whatsapp) 
 *Empowering real-time data visualization.*
