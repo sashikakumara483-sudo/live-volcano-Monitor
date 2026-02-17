@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Global Volcano Monitor - Sahasra Technology</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --bg: #05080a;
+            --panel: rgba(10, 15, 25, 0.98);
+            --accent-red: #ff3333;
+            --accent-cyan: #00d9ff;
+            --active-neon: #39ff14; 
+            --text: #e0f0ff;
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        
+        /* Top Controls */
+        .top-controls { position: absolute; top: 50px; right: 20px; z-index: 3000; display: flex; gap: 10px; }
+        .btn-gui, .select-gui {
+            background: rgba(0,0,0,0.85); border: 1px solid var(--accent-cyan);
+            color: white; padding: 10px 20px; border-radius: 30px; cursor: pointer;
+            font-weight: bold; font-size: 12px; transition: 0.4s ease;
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .btn-on { 
+            background: var(--active-neon) !important; 
+            color: black !important; border-color: white !important;
+            box-shadow: 0 0 15px var(--active-neon);
+        }
+
+        /* Forecast Panel */
+        #forecast-panel {
+            position: absolute; top: 100px; right: 20px; width: 300px; max-height: 400px;
+            background: var(--panel); border: 1px solid var(--accent-cyan); border-radius: 12px;
+            display: none; flex-direction: column; z-index: 4000; padding: 15px; overflow-y: auto;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .forecast-item { background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid #ffd700; }
+        .forecast-item h4 { font-size: 12px; color: #ffd700; margin-bottom: 4px; }
+        .forecast-item p { font-size: 11px; color: #ccc; }
+
+        /* News Ticker */
+        #news-ticker { height: 45px; background: #000; display: flex; align-items: center; overflow: hidden; border-bottom: 2px solid #ffcc00; z-index: 2000; }
+        .ticker-title { background: #ff0000; color: #fff; padding: 0 20px; height: 100%; display: flex; align-items: center; font-weight: 900; font-size: 0.9rem; z-index: 2001; animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0.5; } }
+        .ticker-wrap { flex: 1; overflow: hidden; background: #111; }
+        .ticker-move { display: inline-block; white-space: nowrap; animation: ticker-animation 80s linear infinite; padding-left: 100%; }
+        .ticker-item { display: inline-block; padding: 0 50px; font-size: 1.1rem; font-weight: 800; color: #ffcc00; text-shadow: 0 0 5px rgba(255, 204, 0, 0.5); }
+        @keyframes ticker-animation { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+
+        /* Main Layout */
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        #map { flex: 1; height: 100%; background: #000; }
+        .sidebar { width: 360px; background: var(--panel); border-right: 1px solid #223344; padding: 15px; overflow-y: auto; }
+        
+        .level-container { margin: 20px 0; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; border: 1px solid #223344; }
+        .level-bar-wrapper { margin-bottom: 12px; }
+        .level-label { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; font-weight: bold; text-transform: uppercase; }
+        .progress-bg { background: #1a1a1a; height: 8px; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        .sensor-card { background: rgba(255,255,255,0.03); padding: 15px; border-radius: 12px; margin-bottom: 12px; border: 1px solid rgba(255,255,255,0.1); border-left: 5px solid var(--accent-cyan); cursor: pointer; transition: 0.3s; }
+        .sensor-card:hover { background: rgba(255,255,255,0.08); }
+        .led-marker { width: 18px; height: 18px; border: 2px solid white; border-radius: 50%; transition: 0.4s; cursor: pointer; }
+        .pulse-marker { animation: pulse-red 1.2s infinite; }
+        @keyframes pulse-red { 0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.8); } 70% { transform: scale(1.2); box-shadow: 0 0 0 12px rgba(255, 0, 0, 0); } 100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 0, 0, 0); } }
+
+        /* Image Popup */
+        .volcano-popup img { width: 100%; border-radius: 8px; margin-top: 10px; border: 1px solid var(--accent-cyan); }
+
+        footer { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.8); padding: 5px 15px; border-radius: 20px; font-size: 11px; z-index: 1000; color: #aaa; border: 1px solid #333; }
+        .custom-tooltip { background: #000; color: #fff; border: 1px solid #ffd700; border-radius: 4px; padding: 5px; font-size: 11px; }
+    </style>
+</head>
+<body>
+
+<div class="top-controls">
+    <button id="btn-fore" class="btn-gui" onclick="toggleForecast()">Forecast</button>
+    <button id="btn-voice" class="btn-gui" onclick="toggleVoice()">Voice</button>
+    <select id="lang-switcher" class="select-gui" onchange="changeLanguage(this.value)">
+        <option value="EN">English</option>
+        <option value="SI">සිංහල</option>
+        <option value="ES">Español</option>
+        <option value="FR">Français</option>
+        <option value="JP">日本語</option>
+    </select>
+</div>
+
+<div id="forecast-panel">
+    <h3 id="fore-head" style="color:var(--accent-cyan); font-size:14px; margin-bottom:15px; border-bottom:1px solid #333; padding-bottom:5px;">🌋 7-DAY PREDICTIONS</h3>
+    <div id="forecast-list"></div>
+</div>
+
+<div id="news-ticker">
+  <div class="ticker-title" id="ticker-label">BREAKING NEWS 🚨</div>
+  <div class="ticker-wrap"><div class="ticker-move" id="ticker-content">Initializing global monitoring satellite link...</div></div>
+</div>
+
+<div class="main-container">
+  <div class="sidebar">
+    <h2 id="side-title" style="color: #a0d0ff; font-size: 1.1rem; text-align: center; margin-bottom: 15px;">GLOBAL STATUS LEVELS</h2>
+    <div class="level-container">
+        <div class="level-bar-wrapper">
+            <div class="level-label"><span id="lbl-n">Normal</span> <span id="val-n">0</span></div>
+            <div class="progress-bg"><div id="bar-n" class="progress-fill" style="background:#00ffcc;"></div></div>
+        </div>
+        <div class="level-bar-wrapper">
+            <div class="level-label"><span id="lbl-m">Moderate</span> <span id="val-m">0</span></div>
+            <div class="progress-bg"><div id="bar-m" class="progress-fill" style="background:#ffff00;"></div></div>
+        </div>
+        <div class="level-bar-wrapper">
+            <div class="level-label"><span id="lbl-h">High</span> <span id="val-h">0</span></div>
+            <div class="progress-bg"><div id="bar-h" class="progress-fill" style="background:#ff9900;"></div></div>
+        </div>
+        <div class="level-bar-wrapper">
+            <div class="level-label"><span id="lbl-c">Critical</span> <span id="val-c">0</span></div>
+            <div class="progress-bg"><div id="bar-c" class="progress-fill" style="background:#ff1111;"></div></div>
+        </div>
+    </div>
+    <h3 id="side-sub" style="font-size: 0.8rem; color: #ff4444; margin-top:10px; margin-bottom: 10px;">🚨 ACTIVE TERMINALS</h3>
+    <div id="sensor-container"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<footer>Sahasra Technology - 0750837898</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+let currentLang = 'EN';
+let voiceEnabled = false;
+let forecastVisible = false;
+let terminalStatus = {};
+let markersLayer = L.layerGroup();
+
+const map = L.map('map', { zoomControl: false }).setView([15, 0], 2);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}').addTo(map);
+markersLayer.addTo(map);
+
+const statusColors = ["#00ffcc", "#ffff00", "#ff9900", "#ff1111"];
+
+const langData = {
+    EN: { 
+        ticker: "BREAKING NEWS 🚨", sideTitle: "GLOBAL STATUS LEVELS", sideSub: "🚨 ACTIVE TERMINALS", 
+        statusNames: ["Normal", "Moderate", "High", "Critical"], forecastBtn: "Forecast", foreHead: "🌋 7-DAY PREDICTIONS",
+        foreMsg: "Status trend shows increasing seismic pressure. Eruption Probability: {p}% within 7 days."
+    },
+    SI: { 
+        ticker: "විශේෂ පුවත් 🚨", sideTitle: "ගෝලීය මට්ටම් විශ්ලේෂණය", sideSub: "🚨 සක්‍රිය පර්යන්ත", 
+        statusNames: ["සාමාන්‍ය", "මධ්‍යස්ථ", "අධික", "අන්තරාදායක"], forecastBtn: "අනාවැකි", foreHead: "🌋 දින 7 අනාවැකිය",
+        foreMsg: "භූ කම්පන පීඩනය ඉහළ යන බව පෙනේ. ඉදිරි දින 7 තුළ පිපිරීම් සම්භාවිතාව: {p}% කි."
+    },
+    ES: { ticker: "ÚLTIMAS NOTICIAS 🚨", sideTitle: "Estadísticas", sideSub: "🚨 TERMINALES ACTIVOS", statusNames: ["Normal", "Moderado", "Alto", "Crítico"], forecastBtn: "Pronóstico" },
+    FR: { ticker: "DERNIÈRES NOUVELLES 🚨", sideTitle: "Statistiques", sideSub: "🚨 TERMINAUX ACTIFS", statusNames: ["Normal", "Modéré", "Haut", "Critique"], forecastBtn: "Prévisions" },
+    JP: { ticker: "最新ニュース 🚨", sideTitle: "ライブ統計", sideSub: "🚨 アクティブな端末", statusNames: ["正常", "中程度", "高い", "危機的"], forecastBtn: "予報" }
+};
+
+const newsItems = {
+    EN: ["Alert: Eruption activity intensified in Pacific.", "Seismic Shift: Mount Etna shows rising magma."],
+    SI: ["අනතුරු ඇඟවීම්: පැසිෆික් කලාපයේ ගිනිකඳු ක්‍රියාකාරීත්වය තීව්‍ර වේ.", "සීඝ්‍ර වෙනස්වීම්: එට්නා ගිනිකන්දේ මැග්මා මට්ටම ඉහළට."]
+};
+
+function updateTicker() {
+    const ticker = document.getElementById('ticker-content');
+    const news = newsItems[currentLang] || newsItems['EN'];
+    const html = news.map(n => `<span class="ticker-item">${n}</span>`).join('');
+    ticker.innerHTML = html + html;
+    document.getElementById('ticker-label').innerText = langData[currentLang].ticker;
+}
+
+function changeLanguage(lang) {
+    currentLang = lang;
+    const l = langData[currentLang];
+    document.getElementById('side-title').innerText = l.sideTitle;
+    document.getElementById('side-sub').innerText = l.sideSub;
+    document.getElementById('btn-fore').innerText = l.forecastBtn;
+    document.getElementById('lbl-n').innerText = l.statusNames[0];
+    document.getElementById('lbl-m').innerText = l.statusNames[1];
+    document.getElementById('lbl-h').innerText = l.statusNames[2];
+    document.getElementById('lbl-c').innerText = l.statusNames[3];
+    updateTicker();
+    renderSidebar();
+    if(forecastVisible) generateForecast();
+}
+
+function speak(text) {
+    if(!voiceEnabled) return;
+    window.speechSynthesis.cancel();
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = currentLang === 'SI' ? 'si-LK' : 'en-US';
+    window.speechSynthesis.speak(msg);
+}
+
+function toggleForecast() {
+    forecastVisible = !forecastVisible;
+    document.getElementById('btn-fore').classList.toggle('btn-on', forecastVisible);
+    document.getElementById('forecast-panel').style.display = forecastVisible ? 'flex' : 'none';
+    if(forecastVisible) generateForecast();
+}
+
+function generateForecast() {
+    const list = document.getElementById('forecast-list');
+    list.innerHTML = '';
+    const strings = langData[currentLang] || langData['EN'];
+    document.getElementById('fore-head').innerText = strings.foreHead || "7-DAY PREDICTIONS";
+    
+    const items = Object.values(terminalStatus).slice(0, 5);
+    items.forEach(d => {
+        const prob = (Math.random() * 40 + 50).toFixed(0);
+        const msg = (strings.foreMsg || "High Risk: {p}%").replace("{p}", prob);
+        list.insertAdjacentHTML('beforeend', `<div class="forecast-item"><h4>${d.title}</h4><p>${msg}</p></div>`);
+    });
+}
+
+function toggleVoice() {
+    voiceEnabled = !voiceEnabled;
+    document.getElementById('btn-voice').classList.toggle('btn-on', voiceEnabled);
+}
+
+async function getVolcanoImage(name) {
+    try {
+        const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`);
+        const data = await res.json();
+        return data.thumbnail ? data.thumbnail.source : 'https://images.unsplash.com/photo-1518457607834-6e8d80c183c5?w=300';
+    } catch { return 'https://images.unsplash.com/photo-1518457607834-6e8d80c183c5?w=300'; }
+}
+
+async function loadVolcanoes() {
+    try {
+        const res = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?category=volcanoes&status=open');
+        const data = await res.json();
+
+        data.events.forEach(ev => {
+            const [lon, lat] = ev.geometry[0].coordinates;
+            const safeId = 'v-' + Math.random().toString(36).substr(2, 6);
+            
+            const marker = L.marker([lat, lon], {
+                icon: L.divIcon({ className: '', html: `<div id="marker-${safeId}" class="led-marker" style="background:#00ffcc;"></div>`, iconSize: [18, 18] })
+            }).addTo(markersLayer);
+
+            terminalStatus[safeId] = { s: "0.0", t: "0", idx: 0, title: ev.title, lat: lat, lon: lon };
+
+            // Hover Status
+            marker.on('mouseover', function() {
+                const d = terminalStatus[safeId];
+                const st = langData[currentLang].statusNames[d.idx];
+                this.bindTooltip(`<div class="custom-tooltip"><b>${d.title}</b><br>Status: ${st}<br>${d.s} Hz | ${d.t}°C</div>`, { sticky:true }).openTooltip();
+            });
+
+            // Click Image
+            marker.on('click', async function() {
+                this.bindPopup(`<b>Loading...</b>`).openPopup();
+                const img = await getVolcanoImage(ev.title);
+                this.setPopupContent(`<div class="volcano-popup"><b>${ev.title}</b><img src="${img}"></div>`);
+                speak(ev.title);
+            });
+
+            setInterval(() => {
+                const idx = Math.floor(Math.random() * 4);
+                terminalStatus[safeId].idx = idx;
+                terminalStatus[safeId].s = (Math.random() * 9).toFixed(1);
+                terminalStatus[safeId].t = Math.floor(Math.random() * 500 + 100);
+                const mDiv = document.getElementById(`marker-${safeId}`);
+                if(mDiv) {
+                    mDiv.style.background = statusColors[idx];
+                    idx === 3 ? mDiv.classList.add("pulse-marker") : mDiv.classList.remove("pulse-marker");
+                }
+                updateUI();
+            }, 5000);
+        });
+        updateTicker();
+    } catch (e) { console.log(e); }
+}
+
+function updateUI() {
+    const counts = { 0:0, 1:0, 2:0, 3:0 };
+    Object.values(terminalStatus).forEach(d => counts[d.idx]++);
+    const total = Object.values(terminalStatus).length || 1;
+    const updateBar = (id, count) => {
+        document.getElementById(`val-${id}`).innerText = count;
+        document.getElementById(`bar-${id}`).style.width = (count / total * 100) + "%";
+    };
+    updateBar('n', counts[0]); updateBar('m', counts[1]); updateBar('h', counts[2]); updateBar('c', counts[3]);
+    renderSidebar();
+}
+
+function renderSidebar() {
+    const container = document.getElementById('sensor-container');
+    container.innerHTML = '';
+    Object.keys(terminalStatus).forEach(id => {
+        const d = terminalStatus[id];
+        container.insertAdjacentHTML('beforeend', `
+            <div class="sensor-card" onclick="map.flyTo([${d.lat}, ${d.lon}], 7); speak('${d.title}');">
+                <div style="font-weight:bold; font-size:13px; color:#fff;">${d.title}</div>
+                <div style="color:${statusColors[d.idx]}; font-size:11px; margin-top:5px; font-weight:bold;">
+                    ${langData[currentLang].statusNames[d.idx]} | ${d.s} Hz | ${d.t}°C
+                </div>
+            </div>`);
+    });
+}
+
+window.onload = () => { loadVolcanoes(); };
+</script>
+</body>
+</html>
